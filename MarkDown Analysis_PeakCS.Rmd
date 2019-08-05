@@ -1,0 +1,120 @@
+---
+title: "Peak Contrast Sensitivity"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+PeakCSens_ET <- read_csv("/Volumes/124GB USB/4)ModernVisualField/AnalysisMethod_paper 1/DataOutputPeakSensLog_ET.dat",col_names = FALSE)
+PeakCSens_MB <- read_csv("/Volumes/124GB USB/4)ModernVisualField/AnalysisMethod_paper 1/DataOutputPeakSensLog_MB.dat",col_names = FALSE)
+
+resultsET<-data.frame(PeakCSens_ET)
+resultsMB<-data.frame(PeakCSens_MB)
+names(resultsET)<-c("subjs","Glasses", "Eccentricity", "Theta","PeakCSens", "Xpos", "Ypos")
+names(resultsMB)<-c("subjs","Glasses", "Eccentricity", "Theta","PeakCSens", "Xpos", "Ypos")
+
+
+#they are already sensitivity and log
+PeakLogSensitivity_ET<-(resultsET$PeakCSens)
+PeakLogSensitivity_MB<-(resultsMB$PeakCSens)
+
+resultsET2<-cbind(resultsET, PeakLogSensitivity_ET)
+resultsMB2<-cbind(resultsMB, PeakLogSensitivity_MB)
+names(resultsET2)<-c("subjs","Glasses", "Eccentricity", "Theta","PeakCS", "Xpos", "Ypos", "PeakLogCS")
+names(resultsMB2)<-c("subjs","Glasses", "Eccentricity", "Theta","PeakCS", "Xpos", "Ypos", "PeakLogCS")
+
+
+whole<-rbind(resultsET2 ,resultsMB2)
+Method <- sprintf("Method")
+Method[1:(dim(resultsET2)[1])]<-"ET"
+Method[(dim(resultsET2)[1]+1):tail(dim(resultsET2)[1]*2, 1)]<-"MB"
+resultsTot<-cbind(Method, whole)
+
+library(EnvStats)
+out <- rosnerTest(resultsTot$PeakLogCS, k = 17, alpha = 0.05, warn = TRUE)
+out
+#DeletedOutliers<-resultsTot$PeakLogCS[!resultsTot$PeakLogCS %in% out$all.stats$Value[out$all.stats$Outlier==TRUE]]
+resultsTot$PeakLogCS[resultsTot$PeakLogCS %in% out$all.stats$Value[out$all.stats$Outlier==TRUE]]=mean(resultsTot$PeakLogCS[!resultsTot$PeakLogCS %in% out$all.stats$Value[out$all.stats$Outlier==TRUE]])
+
+
+require(afex) 
+require(nlme)
+require(ggplot2)
+require(multcomp)
+require(lsmeans)
+
+My_Theme = theme(
+  axis.title.x = element_text(size = 16),
+  axis.text.x = element_text(size = 16),
+  axis.title.y = element_text(size = 16), 
+  axis.text.y = element_text(size = 16))+
+  theme_bw()   + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(legend.background = element_rect(fill="transparent"), 
+        legend.text = element_text(face = "bold", color = "black", size = 16)) + #legend.position=c(0.75, 0.87), 
+  theme(axis.title = element_text(face = "bold", color = "black", size = 16), 
+        axis.text.x = element_text(face = "bold", color = "black", angle = 0, hjust = 0.7, vjust = 0.7), 
+        axis.text.y = element_text(face = "bold", color = "black", angle = 0, hjust = 0.7, vjust = 0.7), 
+        plot.title = element_text(face = "bold", color = "black", hjust = 0.5),
+        legend.title = element_text(face = "bold", color = "black", size = 16)) #angle = 45,
+
+
+#analysis with medians and box plots instead
+p1.3<-ggplot(resultsTot, aes(x=as.factor(resultsTot$Eccentricity), y= resultsTot$PeakLogCS, fill= as.factor(resultsTot$Method))) +
+  geom_boxplot() +
+  ylab("Peak Log Contrast Sensitivity") + # Set axis labels
+  coord_cartesian(ylim=c(0, 2)) +
+  ggtitle("PeakLogCS") +                                 # Set title
+  # stat_summary(fun.data = give.n, geom = "text", fun.y = median) +
+  scale_fill_manual(values=c("gray30", "gray90"), name="Method", breaks=c("ET", "MB"), labels=c("Eye Tracking Method", "Button Press Method"))+
+  scale_x_discrete( name="Eccentricity (visang)", breaks=c("1", "2", "3"), labels=c("4°", "9°", "17°"))
+  #My_Theme
+
+p1.4<-ggplot(resultsTot, aes(x=as.factor(resultsTot$Theta), y= resultsTot$PeakLogCS, fill= as.factor(resultsTot$Method))) +
+  geom_boxplot() +
+  ylab("Peak Log Contrast Sensitivity") + # Set axis labels
+  #coord_cartesian(ylim=c(0, 2)) +
+  ggtitle("PeakLogCS") +                                # Set title
+  # stat_summary(fun.data = give.n, geom = "text", fun.y = median) +
+  scale_fill_manual(values=c("gray30", "gray90"), name="Method", breaks=c("ET", "MB"), labels=c("Eye Tracking Method", "Button Press Method"))+
+  scale_x_discrete(breaks=c("1", "2","3","4", "5","6","7","8"), name="Theta (polar angle)",labels=c("0°","45°","90°","135°","180°","225°","270°","315°") )+
+  My_Theme
+
+
+MixedEffectsModel_LME<-lme(PeakLogCS ~ as.factor(Eccentricity)*as.factor(Method),random=list(subjs=pdBlocked(list(~1, pdIdent(~as.factor(Eccentricity)-1), pdIdent(~as.factor(Method)-1)))) , data=resultsTot,  method="ML")
+
+MixedEffectsTHETAModel_LME<-lme(PeakLogCS ~ as.factor(Method)*as.factor(Theta),random=list(subjs=pdBlocked(list(~1, pdIdent(~as.factor(Theta)-1), pdIdent(~as.factor(Method)-1)))) , data=resultsTot,  method="ML")
+
+ls.contrasts<-lsmeans(MixedEffectsModel_LME, pairwise~(as.factor(Eccentricity)*as.factor(Method)), adjust="tukey")
+
+ls.THETAcontrasts<-lsmeans(MixedEffectsTHETAModel_LME, pairwise~(as.factor(Theta)), adjust="tukey")
+
+
+```
+
+
+## analysis for paper
+
+```{r output, echo=TRUE}
+resultsTot$PeakLogCS[resultsTot$PeakLogCS %in% out$all.stats$Value[out$all.stats$Outlier==TRUE]]=mean(resultsTot$PeakLogCS[!resultsTot$PeakLogCS %in% out$all.stats$Value[out$all.stats$Outlier==TRUE]])
+
+
+anova(MixedEffectsModel_LME)
+
+ls.contrasts
+
+anova(MixedEffectsTHETAModel_LME)
+
+ls.THETAcontrasts
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r plots, echo=TRUE}
+p1.3
+p1.4
+```
+
+
